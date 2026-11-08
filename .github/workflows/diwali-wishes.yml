@@ -1,0 +1,85 @@
+name: Diwali Wishes PR
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  diwali-pr:
+    # Loop guard: don't run when the merged commit is itself a Diwali PR
+    if: >-
+      !contains(github.event.head_commit.message, 'chore(diwali)') &&
+      !contains(github.event.head_commit.message, 'diwali/')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SHA: ${{ github.sha }}
+      REPO: ${{ github.repository }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Find who made the commit
+        id: who
+        run: |
+          LOGIN=$(gh api "repos/$REPO/commits/$SHA" --jq '.author.login // empty')
+          if [ -z "$LOGIN" ]; then LOGIN="${{ github.actor }}"; fi
+          echo "login=$LOGIN" >> "$GITHUB_OUTPUT"
+
+      - name: Pick 4 random Diwali pictures (Wikimedia Commons)
+        id: pics
+        run: |
+          curl -s -A "diwali-wishes-bot/1.0 (github actions)" \
+            "https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=diwali%20filetype:bitmap&gsrnamespace=6&gsrlimit=50&prop=imageinfo&iiprop=url&iiurlwidth=800&format=json" \
+            > result.json
+
+          jq -r '[.query.pages[] | .imageinfo[0].thumburl | select(type == "string" and test("\\.(jpe?g|png)"; "i"))] | .[]' result.json | shuf -n 4 > pics.txt
+
+          if [ "$(wc -l < pics.txt)" -lt 4 ]; then
+            echo "Could not find 4 pictures" >&2
+            exit 1
+          fi
+          cat pics.txt
+
+      - name: Create wishes file and PR
+        env:
+          LOGIN: ${{ steps.who.outputs.login }}
+        run: |
+          SHORT=$(echo "$SHA" | cut -c1-7)
+          BRANCH="diwali/$SHORT"
+
+          {
+            echo "# 🪔 Happy Diwali, @$LOGIN! 🪔"
+            echo
+            echo "Thank you for your merge (\`$SHORT\`). May your code compile on the first try,"
+            echo "your tests always pass, and your life be as bright as the festival of lights! ✨"
+            echo
+            i=1
+            while read -r url; do
+              echo "![Diwali $i]($url)"
+              echo
+              i=$((i+1))
+            done < pics.txt
+          } > body.md
+
+          mkdir -p diwali-wishes
+          cp body.md "diwali-wishes/$SHORT.md"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add "diwali-wishes/$SHORT.md"
+          git commit -m "chore(diwali): happy diwali wishes for @$LOGIN"
+          git push origin "$BRANCH"
+
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "chore(diwali): 🪔 Happy Diwali @$LOGIN" \
+            --body-file body.md
