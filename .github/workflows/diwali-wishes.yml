@@ -52,7 +52,7 @@ jobs:
           LOGIN: ${{ steps.who.outputs.login }}
         run: |
           SHORT=$(echo "$SHA" | cut -c1-7)
-          BRANCH="diwali/$SHORT"
+          BRANCH="diwali/$SHORT-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
 
           {
             echo "# 🪔 Happy Diwali, @$LOGIN! 🪔"
